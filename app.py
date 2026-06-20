@@ -2877,10 +2877,296 @@ def _v202_loading_css():
 # v202 PATCH END
 # =========================================================
 
+
+# =========================================================
+# v203 PATCH START: Geoshape町丁目境界フォールバック
+# =========================================================
+# 目的:
+# - Nominatimが429で止まっても、Geoshapeの国勢調査町丁・字等別境界データから町丁目候補を取る。
+# - 例: 「上高田」→ 東京都中野区のTopoJSONから上高田一丁目〜五丁目を取得。
+# - 境界ポリゴンも取得するため、地図上に枠が出る。
+# =========================================================
+
+_V203_CITY_CODE_MAP = {
+    # 東京23区
+    "千代田区": ("東京都", "13", "13101"), "中央区": ("東京都", "13", "13102"), "港区": ("東京都", "13", "13103"),
+    "新宿区": ("東京都", "13", "13104"), "文京区": ("東京都", "13", "13105"), "台東区": ("東京都", "13", "13106"),
+    "墨田区": ("東京都", "13", "13107"), "江東区": ("東京都", "13", "13108"), "品川区": ("東京都", "13", "13109"),
+    "目黒区": ("東京都", "13", "13110"), "大田区": ("東京都", "13", "13111"), "世田谷区": ("東京都", "13", "13112"),
+    "渋谷区": ("東京都", "13", "13113"), "中野区": ("東京都", "13", "13114"), "杉並区": ("東京都", "13", "13115"),
+    "豊島区": ("東京都", "13", "13116"), "北区": ("東京都", "13", "13117"), "荒川区": ("東京都", "13", "13118"),
+    "板橋区": ("東京都", "13", "13119"), "練馬区": ("東京都", "13", "13120"), "足立区": ("東京都", "13", "13121"),
+    "葛飾区": ("東京都", "13", "13122"), "江戸川区": ("東京都", "13", "13123"),
+
+    # よく使いそうな東京市部
+    "八王子市": ("東京都", "13", "13201"), "立川市": ("東京都", "13", "13202"), "武蔵野市": ("東京都", "13", "13203"),
+    "三鷹市": ("東京都", "13", "13204"), "府中市": ("東京都", "13", "13206"), "調布市": ("東京都", "13", "13208"),
+    "町田市": ("東京都", "13", "13209"), "小金井市": ("東京都", "13", "13210"), "小平市": ("東京都", "13", "13211"),
+    "国分寺市": ("東京都", "13", "13214"), "国立市": ("東京都", "13", "13215"), "西東京市": ("東京都", "13", "13229"),
+
+    # 千葉
+    "千葉市中央区": ("千葉県", "12", "12101"), "千葉市花見川区": ("千葉県", "12", "12102"), "千葉市稲毛区": ("千葉県", "12", "12103"),
+    "千葉市若葉区": ("千葉県", "12", "12104"), "千葉市緑区": ("千葉県", "12", "12105"), "千葉市美浜区": ("千葉県", "12", "12106"),
+    "市川市": ("千葉県", "12", "12203"), "船橋市": ("千葉県", "12", "12204"), "松戸市": ("千葉県", "12", "12207"),
+    "野田市": ("千葉県", "12", "12208"), "柏市": ("千葉県", "12", "12217"), "流山市": ("千葉県", "12", "12220"),
+    "我孫子市": ("千葉県", "12", "12222"), "鎌ケ谷市": ("千葉県", "12", "12224"), "浦安市": ("千葉県", "12", "12227"),
+
+    # 埼玉
+    "さいたま市西区": ("埼玉県", "11", "11101"), "さいたま市北区": ("埼玉県", "11", "11102"), "さいたま市大宮区": ("埼玉県", "11", "11103"),
+    "さいたま市見沼区": ("埼玉県", "11", "11104"), "さいたま市中央区": ("埼玉県", "11", "11105"), "さいたま市桜区": ("埼玉県", "11", "11106"),
+    "さいたま市浦和区": ("埼玉県", "11", "11107"), "さいたま市南区": ("埼玉県", "11", "11108"), "さいたま市緑区": ("埼玉県", "11", "11109"),
+    "さいたま市岩槻区": ("埼玉県", "11", "11110"), "川口市": ("埼玉県", "11", "11203"), "川越市": ("埼玉県", "11", "11201"),
+    "所沢市": ("埼玉県", "11", "11208"), "春日部市": ("埼玉県", "11", "11214"), "草加市": ("埼玉県", "11", "11221"),
+    "越谷市": ("埼玉県", "11", "11222"), "蕨市": ("埼玉県", "11", "11223"), "戸田市": ("埼玉県", "11", "11224"),
+    "朝霞市": ("埼玉県", "11", "11227"), "志木市": ("埼玉県", "11", "11228"), "和光市": ("埼玉県", "11", "11229"),
+    "新座市": ("埼玉県", "11", "11230"), "八潮市": ("埼玉県", "11", "11234"), "富士見市": ("埼玉県", "11", "11235"),
+    "三郷市": ("埼玉県", "11", "11237"), "ふじみ野市": ("埼玉県", "11", "11245"),
+
+    # 神奈川の主要部
+    "横浜市鶴見区": ("神奈川県", "14", "14101"), "横浜市神奈川区": ("神奈川県", "14", "14102"), "横浜市西区": ("神奈川県", "14", "14103"),
+    "横浜市中区": ("神奈川県", "14", "14104"), "横浜市南区": ("神奈川県", "14", "14105"), "横浜市港北区": ("神奈川県", "14", "14109"),
+    "川崎市川崎区": ("神奈川県", "14", "14131"), "川崎市幸区": ("神奈川県", "14", "14132"), "川崎市中原区": ("神奈川県", "14", "14133"),
+    "川崎市高津区": ("神奈川県", "14", "14134"), "川崎市多摩区": ("神奈川県", "14", "14135"), "川崎市宮前区": ("神奈川県", "14", "14136"),
+    "川崎市麻生区": ("神奈川県", "14", "14137"),
+}
+
+# 町名だけ入力されたときの実用補助。必要になった町名はここへ追加できる。
+_V203_TOWN_HINTS = {
+    "上高田": [("中野区", "上高田")],
+}
+
+
+def _v203_norm(s: str) -> str:
+    try:
+        return _normalize_jp(str(s or ""))
+    except Exception:
+        return re.sub(r"\s+", "", str(s or ""))
+
+
+def _v203_decode_arcs(topology: Dict[str, Any]) -> List[List[Tuple[float, float]]]:
+    tr = topology.get("transform") or {}
+    scale = tr.get("scale") or [1, 1]
+    translate = tr.get("translate") or [0, 0]
+    decoded = []
+    for arc in topology.get("arcs", []) or []:
+        x = y = 0
+        pts = []
+        for dx, dy in arc:
+            x += dx
+            y += dy
+            lon = x * scale[0] + translate[0]
+            lat = y * scale[1] + translate[1]
+            pts.append((float(lon), float(lat)))
+        decoded.append(pts)
+    return decoded
+
+
+def _v203_arc_points(decoded_arcs, arc_index: int) -> List[Tuple[float, float]]:
+    if arc_index < 0:
+        idx = -arc_index - 1
+        return list(reversed(decoded_arcs[idx]))
+    return list(decoded_arcs[arc_index])
+
+
+def _v203_ring_points(decoded_arcs, arc_refs) -> List[Tuple[float, float]]:
+    pts = []
+    for ref in arc_refs:
+        part = _v203_arc_points(decoded_arcs, int(ref))
+        if pts and part and pts[-1] == part[0]:
+            pts.extend(part[1:])
+        else:
+            pts.extend(part)
+    return pts
+
+
+def _v203_geometry_to_latlon_lines(decoded_arcs, geom: Dict[str, Any]) -> List[List[LatLon]]:
+    typ = geom.get("type")
+    arcs = geom.get("arcs") or []
+    lines: List[List[LatLon]] = []
+    try:
+        if typ == "Polygon":
+            for ring in arcs[:1]:
+                pts = _v203_ring_points(decoded_arcs, ring)
+                lines.append([(lat, lon) for lon, lat in pts])
+        elif typ == "MultiPolygon":
+            for poly in arcs:
+                if not poly:
+                    continue
+                ring = poly[0]
+                pts = _v203_ring_points(decoded_arcs, ring)
+                lines.append([(lat, lon) for lon, lat in pts])
+    except Exception:
+        return []
+    return [ln for ln in lines if len(ln) >= 3]
+
+
+def _v203_prop_name(props: Dict[str, Any]) -> str:
+    keys = ["S_NAME", "s_name", "町丁目名", "町字名", "大字町丁目名", "MOJI", "moji", "NAME", "name", "A_NAME", "N03_005", "KEY_CODE_NAME"]
+    for k in keys:
+        v = props.get(k)
+        if v not in (None, ""):
+            return str(v).strip()
+    # GeoshapeのTopoJSONではpropertiesにname相当が入る想定だが、念のため全値から丁目っぽいものを拾う
+    for v in props.values():
+        sv = str(v)
+        if "丁目" in sv or re.search(r"[一二三四五六七八九十0-9]+丁", sv):
+            return sv.strip()
+    return ""
+
+
+def _v203_prop_code(props: Dict[str, Any]) -> str:
+    for k in ["KEY_CODE", "key_code", "code", "CODE", "id", "ID"]:
+        v = props.get(k)
+        if v not in (None, ""):
+            return str(v)
+    return ""
+
+
+@st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
+def _v203_fetch_geoshape_city(pref_name: str, pref_code: str, city_name: str, city_code: str) -> List[Dict[str, Any]]:
+    """Geoshapeの市区町村TopoJSONを読み、町丁目候補へ変換。"""
+    if requests is None:
+        return []
+    url = f"https://geoshape.ex.nii.ac.jp/ka/topojson/2020/{pref_code}/r2ka{city_code}.topojson"
+    r = requests.get(url, timeout=45, headers={"User-Agent": "GPXuploader/2026 geoshape fallback"})
+    r.raise_for_status()
+    topo = r.json()
+    decoded = _v203_decode_arcs(topo)
+
+    geoms = []
+    for obj in (topo.get("objects") or {}).values():
+        if obj.get("type") == "GeometryCollection":
+            geoms.extend(obj.get("geometries") or [])
+        else:
+            geoms.append(obj)
+
+    out = []
+    for i, geom in enumerate(geoms):
+        props = geom.get("properties") or {}
+        name = _v203_prop_name(props)
+        if not name:
+            continue
+        lines = _v203_geometry_to_latlon_lines(decoded, geom)
+        if not lines:
+            continue
+        lat_sum = lon_sum = n = 0
+        for ln in lines:
+            for lat, lon in ln:
+                lat_sum += lat
+                lon_sum += lon
+                n += 1
+        if not n:
+            continue
+        out.append({
+            "source": "local_boundary",
+            "source2": "geoshape_topojson",
+            "raw_index": _v203_prop_code(props) or i,
+            "pref": pref_name,
+            "city": city_name,
+            "short_name": name,
+            "display_name": f"{pref_name}{city_name}{name}",
+            "lat": lat_sum / n,
+            "lon": lon_sum / n,
+            "latlon_lines": lines,
+            "precise": True,
+            "geojson": {},
+        })
+    out.sort(key=lambda r: _natural_town_key(r.get("short_name", "")))
+    return out
+
+
+def _v203_detect_city_targets(q: str) -> List[Tuple[str, str, str, str, str]]:
+    """queryから候補市区町村を推定。戻り値: pref, pref_code, city, city_code, town_query"""
+    qn = _v203_norm(q)
+    targets = []
+
+    # 市区町村名が明示されている場合
+    for city, (pref, pref_code, city_code) in _V203_CITY_CODE_MAP.items():
+        if _v203_norm(city) in qn:
+            town_q = qn.replace(_v203_norm(pref), "").replace(_v203_norm(city), "")
+            targets.append((pref, pref_code, city, city_code, town_q))
+    if targets:
+        return targets[:5]
+
+    # 町名だけのヒント
+    for town, city_items in _V203_TOWN_HINTS.items():
+        if _v203_norm(town) in qn:
+            for city, town_name in city_items:
+                if city in _V203_CITY_CODE_MAP:
+                    pref, pref_code, city_code = _V203_CITY_CODE_MAP[city]
+                    targets.append((pref, pref_code, city, city_code, _v203_norm(town_name)))
+    return targets[:5]
+
+
+def _v203_geoshape_search_candidates(q: str, limit: int = 80) -> List[Dict[str, Any]]:
+    targets = _v203_detect_city_targets(q)
+    if not targets:
+        return []
+
+    results = []
+    for pref, pref_code, city, city_code, town_q in targets:
+        try:
+            rows = _v203_fetch_geoshape_city(pref, pref_code, city, city_code)
+        except Exception:
+            continue
+        tq = _v203_norm(town_q or q)
+        # city/prefだけ検索ならその市区町村内の町丁目を出す
+        for r in rows:
+            name_norm = _v203_norm(r.get("short_name", ""))
+            full_norm = _v203_norm(r.get("display_name", ""))
+            if not tq or tq == _v203_norm(city) or tq in name_norm or tq in full_norm:
+                results.append(r)
+
+    results.sort(key=lambda r: (r.get("pref",""), r.get("city",""), _natural_town_key(r.get("short_name",""))))
+    return results[:limit]
+
+
+def smart_search_place_candidates(query: str) -> List[Dict[str, Any]]:  # type: ignore[override]
+    """v203: ローカル → Geoshape → Nominatimの順に検索。"""
+    q = (query or "").strip()
+    if not q:
+        raise ValueError("検索語が空です")
+
+    local_items = local_boundary_search_candidates_v126(q, limit=300)
+    if local_items:
+        return local_items
+
+    geo_items = _v203_geoshape_search_candidates(q, limit=120)
+    if geo_items:
+        return geo_items
+
+    # 最後の保険だけNominatim。大量検索はv202で止めている。
+    try:
+        items = _nominatim_get(q, limit=20)
+    except V202SearchRateLimit:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"検索に失敗しました。市区町村名を付けて再検索してください。例: 東京都中野区 上高田。詳細: {e}")
+
+    items = _dedupe_places(items)
+
+    def score(x: Dict[str, Any]) -> Tuple[int, int, int, int]:
+        disp = str(x.get("display_name", ""))
+        cls = str(x.get("class", ""))
+        typ = str(x.get("type", ""))
+        has_poly = 1 if _has_polygon_geojson(x) else 0
+        has_chome = 1 if "丁目" in disp else 0
+        exactish = 1 if _normalize_jp(q) in _normalize_jp(disp) else 0
+        residentialish = 1 if cls in ("boundary", "place") or typ in ("administrative", "quarter", "neighbourhood", "suburb", "residential") else 0
+        return (-has_poly, -exactish, -has_chome, -residentialish)
+
+    items.sort(key=score)
+    return items[:30]
+
+
+# =========================================================
+# v203 PATCH END
+# =========================================================
+
 def main() -> None:
     st.set_page_config(page_title="GPXuploader", layout="wide", initial_sidebar_state="expanded")
     st.title("GPXuploader")
-    st.caption("スマホブラウザ実用版 v202。検索429対策と検索中表示を強化しています。")
+    st.caption("スマホブラウザ実用版 v203。Geoshape町丁目境界検索を追加し、検索429依存を減らしています。")
     _v198_mobile_css()
     _v199_mobile_fix_css()
     _v200_readable_mobile_css()
@@ -12358,6 +12644,8 @@ def render_v195_excel_designated_mansion_images():
 # =========================================================
 # v197 PATCH END
 # =========================================================
+
+
 
 
 
