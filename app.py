@@ -2602,13 +2602,156 @@ iframe {
 # v200 PATCH END
 # =========================================================
 
+
+# =========================================================
+# v201 PATCH START: ドロップダウン黒背景・境界表示強化
+# =========================================================
+# 目的:
+# - スマホでマルチセレクト候補リスト/表が黒くなり文字が読めない問題を修正。
+# - 配布範囲追加後、地図が対象エリアへ寄らず境界線が見えない問題を改善。
+# - 地図の境界線を太く、塗りを少し濃くしてスマホでも分かりやすくする。
+# =========================================================
+
+def _v201_dropdown_and_map_css():
+    st.markdown("""
+<style>
+/* ===== v201: dropdown/popover/readability ===== */
+
+/* BaseWeb popover/menu/select dropdown */
+[data-baseweb="popover"],
+[data-baseweb="popover"] *,
+[data-baseweb="menu"],
+[data-baseweb="menu"] *,
+[role="listbox"],
+[role="listbox"] *,
+[role="option"],
+[role="option"] * {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+[data-baseweb="popover"] {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 16px 36px rgba(15,23,42,0.22) !important;
+  overflow: hidden !important;
+}
+
+[role="option"] {
+  min-height: 44px !important;
+  font-size: 15px !important;
+  border-bottom: 1px solid #e5e7eb !important;
+}
+
+[role="option"][aria-selected="true"],
+[role="option"]:hover {
+  background-color: #dbeafe !important;
+  color: #0f172a !important;
+}
+
+/* Select / multiselect selected tags */
+[data-baseweb="select"] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+[data-baseweb="select"] > div,
+[data-baseweb="select"] input,
+[data-baseweb="select"] span {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* dataframes/tables and json blocks */
+[data-testid="stDataFrame"],
+[data-testid="stDataFrame"] *,
+[data-testid="stTable"],
+[data-testid="stTable"] *,
+table, thead, tbody, tr, td, th {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* code/json blocks: keep readable, not black-on-black */
+pre, code,
+[data-testid="stJson"],
+[data-testid="stJson"] * {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #e5e7eb !important;
+}
+
+/* expander content remains white */
+div[data-testid="stExpander"] div[data-testid="stVerticalBlock"],
+div[data-testid="stExpander"] div[data-testid="stHorizontalBlock"] {
+  background: #ffffff !important;
+}
+
+/* map area border */
+iframe {
+  border: 2px solid #dbeafe !important;
+  box-shadow: 0 8px 20px rgba(15,23,42,0.08) !important;
+}
+
+/* mobile dropdown can otherwise overflow awkwardly */
+@media (max-width: 760px) {
+  [data-baseweb="popover"] {
+    max-width: calc(100vw - 28px) !important;
+  }
+  [role="listbox"] {
+    max-height: 420px !important;
+    overflow-y: auto !important;
+  }
+}
+</style>
+""", unsafe_allow_html=True)
+
+def _v201_fit_bounds_for_registered_areas(m):
+    """登録済み配布範囲・検索境界・生成ルートに合わせて地図を自動ズーム。"""
+    pts = []
+    try:
+        for line in st.session_state.get("boundary_lines", []) or []:
+            for p in line or []:
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    pts.append((float(p[0]), float(p[1])))
+    except Exception:
+        pass
+    try:
+        for item in st.session_state.get("route_boundaries_v118", []) or []:
+            poly = item.get("coords") if isinstance(item, dict) else item
+            for p in poly or []:
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    pts.append((float(p[0]), float(p[1])))
+    except Exception:
+        pass
+    try:
+        for p in st.session_state.get("last_generated_route_v118", []) or []:
+            if isinstance(p, (list, tuple)) and len(p) >= 2:
+                pts.append((float(p[0]), float(p[1])))
+    except Exception:
+        pass
+
+    if len(pts) >= 2:
+        lats = [p[0] for p in pts]
+        lons = [p[1] for p in pts]
+        pad_lat = max((max(lats) - min(lats)) * 0.18, 0.002)
+        pad_lon = max((max(lons) - min(lons)) * 0.18, 0.002)
+        try:
+            m.fit_bounds([[min(lats)-pad_lat, min(lons)-pad_lon], [max(lats)+pad_lat, max(lons)+pad_lon]])
+        except Exception:
+            pass
+
+# =========================================================
+# v201 PATCH END
+# =========================================================
+
 def main() -> None:
     st.set_page_config(page_title="GPXuploader", layout="wide", initial_sidebar_state="expanded")
     st.title("GPXuploader")
-    st.caption("スマホブラウザ実用版 v200。文字が消えないようにライト表示へ固定し、町名検索を本文内で使えるようにしています。")
+    st.caption("スマホブラウザ実用版 v201。候補リストの文字消え修正・配布範囲の境界表示を強化しています。")
     _v198_mobile_css()
     _v199_mobile_fix_css()
     _v200_readable_mobile_css()
+    _v201_dropdown_and_map_css()
     _v198_header()
 
     missing = []
@@ -2821,14 +2964,14 @@ def main() -> None:
 
     # 検索境界
     for line in st.session_state.boundary_lines:
-        folium.PolyLine(line, color="red", weight=4, opacity=0.75, tooltip=st.session_state.boundary_label or "検索境界").add_to(m)
+        folium.PolyLine(line, color="#ef4444", weight=7, opacity=0.98, tooltip=st.session_state.boundary_label or "検索境界").add_to(m)
 
     # 登録済み配布範囲
     for i, item in enumerate(st.session_state.route_boundaries_v118, start=1):
         poly = item.get("coords") if isinstance(item, dict) else item
         nm = item.get("name", f"配布範囲{i}") if isinstance(item, dict) else f"配布範囲{i}"
         if poly:
-            folium.Polygon(poly, color="blue", weight=3, fill=True, fill_opacity=0.08, tooltip=str(nm)[:80]).add_to(m)
+            folium.Polygon(poly, color="#2563eb", weight=6, opacity=0.98, fill=True, fill_color="#60a5fa", fill_opacity=0.20, tooltip=str(nm)[:80]).add_to(m)
 
     # 通過ピン（色別グループ）
     draw_pin_groups_v135(m)
@@ -2855,6 +2998,7 @@ def main() -> None:
     if st.session_state.last_generated_route_v118:
         folium.PolyLine(st.session_state.last_generated_route_v118, color="purple", weight=4, opacity=0.9, tooltip="生成ルート").add_to(m)
 
+    _v201_fit_bounds_for_registered_areas(m)
     folium.LayerControl().add_to(m)
 
     st.info("①町名検索 → ②配布範囲追加 → ③必要なら通過ピン → ④GPX生成、の順で使います。")
@@ -12068,6 +12212,8 @@ def render_v195_excel_designated_mansion_images():
 # =========================================================
 # v197 PATCH END
 # =========================================================
+
+
 
 
 
