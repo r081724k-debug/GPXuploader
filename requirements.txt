@@ -1,0 +1,12 @@
+streamlit
+streamlit-folium
+folium
+requests
+beautifulsoup4
+pandas
+numpy
+Pillow
+opencv-python-headless
+networkx
+osmnx
+shapely
