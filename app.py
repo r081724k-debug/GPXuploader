@@ -2419,12 +2419,196 @@ div[data-testid="stVerticalBlock"] {
 # v199 PATCH END
 # =========================================================
 
+
+# =========================================================
+# v200 PATCH START: スマホ文字消え・黒ボタン修正
+# =========================================================
+# 目的:
+# - Streamlit Cloud/スマホ側のダークテーマで、ボタン文字・入力欄・展開欄の文字が見えなくなる問題を修正。
+# - 町名検索ボタンが黒い無文字ボタンに見える問題を修正。
+# - 既存の検索/GPX/画像取得/チラシ合成ロジックは変更しない。
+# =========================================================
+
+def _v200_readable_mobile_css():
+    st.markdown("""
+<style>
+/* ===== v200: force readable light UI ===== */
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* all normal text */
+h1, h2, h3, h4, h5, h6,
+p, span, label, div, small,
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] * {
+  color: #0f172a !important;
+}
+
+/* captions/help text */
+[data-testid="stCaptionContainer"], .stCaptionContainer, small {
+  color: #475569 !important;
+}
+
+/* expander/header/card */
+div[data-testid="stExpander"] {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 16px !important;
+}
+div[data-testid="stExpander"] > details > summary {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border-radius: 16px 16px 0 0 !important;
+}
+div[data-testid="stExpander"] > details > summary * {
+  color: #0f172a !important;
+}
+
+/* text input / textarea */
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+input, textarea {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 14px !important;
+  caret-color: #1d4ed8 !important;
+}
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder,
+input::placeholder, textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* buttons: make text always visible */
+.stButton > button,
+.stDownloadButton > button,
+button {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 14px !important;
+  min-height: 48px !important;
+  font-weight: 800 !important;
+}
+.stButton > button *,
+.stDownloadButton > button *,
+button * {
+  color: #0f172a !important;
+}
+
+/* primary-ish submit/action buttons */
+.stButton > button[kind="primary"],
+.stDownloadButton > button[kind="primary"] {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+}
+.stButton > button[kind="primary"] *,
+.stDownloadButton > button[kind="primary"] * {
+  color: #ffffff !important;
+}
+
+/* file uploader */
+[data-testid="stFileUploader"] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 16px !important;
+}
+[data-testid="stFileUploader"] * {
+  color: #0f172a !important;
+}
+[data-testid="stFileUploader"] button {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* number input */
+[data-testid="stNumberInput"] input {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+[data-testid="stNumberInput"] button {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+[data-testid="stNumberInput"] button * {
+  color: #0f172a !important;
+}
+
+/* selectbox */
+[data-testid="stSelectbox"] div {
+  color: #0f172a !important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 14px !important;
+}
+
+/* slider */
+[data-testid="stSlider"] * {
+  color: #0f172a !important;
+}
+
+/* checkbox */
+[data-testid="stCheckbox"] * {
+  color: #0f172a !important;
+}
+
+/* map card */
+iframe {
+  background: #ffffff !important;
+  border-radius: 14px !important;
+}
+
+/* hide only metric cards on mobile; keep all useful operation controls */
+@media (max-width: 760px) {
+  section[data-testid="stSidebar"] {
+    display: none !important;
+  }
+  [data-testid="stMetric"] {
+    display: none !important;
+  }
+  .block-container {
+    padding-left: 0.55rem !important;
+    padding-right: 0.55rem !important;
+    padding-top: 0.35rem !important;
+  }
+  .stButton > button,
+  .stDownloadButton > button {
+    min-height: 50px !important;
+    font-size: 1rem !important;
+  }
+  [data-testid="stTextInput"] input,
+  [data-testid="stTextArea"] textarea {
+    font-size: 16px !important;
+    min-height: 50px !important;
+  }
+}
+
+/* Streamlit decoration/badge */
+[data-testid="stDecoration"] {
+  display: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# v200 PATCH END
+# =========================================================
+
 def main() -> None:
     st.set_page_config(page_title="GPXuploader", layout="wide", initial_sidebar_state="expanded")
     st.title("GPXuploader")
-    st.caption("スマホブラウザ実用版。操作パネルを本文内にまとめ、町名検索がすぐ使えるようにしています。")
+    st.caption("スマホブラウザ実用版 v200。文字が消えないようにライト表示へ固定し、町名検索を本文内で使えるようにしています。")
     _v198_mobile_css()
     _v199_mobile_fix_css()
+    _v200_readable_mobile_css()
     _v198_header()
 
     missing = []
@@ -11884,6 +12068,8 @@ def render_v195_excel_designated_mansion_images():
 # =========================================================
 # v197 PATCH END
 # =========================================================
+
+
 
 
 
