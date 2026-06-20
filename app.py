@@ -2744,14 +2744,148 @@ def _v201_fit_bounds_for_registered_areas(m):
 # v201 PATCH END
 # =========================================================
 
+
+# =========================================================
+# v202 PATCH START: 検索429対策・検索中表示強化
+# =========================================================
+# 目的:
+# - Streamlit Cloud上でNominatimへ連続アクセスしすぎて 429 Too many requests になる問題を軽減。
+# - ローカル境界データが無いクラウド版では、丁目バリエーションを大量問い合わせしない。
+# - 検索中に白画面/無反応に見えないよう、検索中表示を強く出す。
+# =========================================================
+
+class V202SearchRateLimit(Exception):
+    pass
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def _v202_cached_nominatim_get(q: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """クラウド版用: Nominatimは1検索1回に抑え、結果は24時間キャッシュ。"""
+    if requests is None:
+        raise RuntimeError("requests がありません。")
+    q = (q or "").strip()
+    if not q:
+        raise ValueError("検索語が空です")
+
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        "q": q,
+        "format": "jsonv2",
+        "limit": int(limit),
+        "countrycodes": "jp",
+        "addressdetails": 1,
+        "polygon_geojson": 1,
+    }
+    headers = {
+        "User-Agent": "GPXuploader/2026 streamlit-cloud address search",
+        "Accept-Language": "ja,en;q=0.8",
+    }
+
+    r = requests.get(url, params=params, headers=headers, timeout=35)
+    if r.status_code == 429:
+        raise V202SearchRateLimit("検索サービスが混雑しています。少し時間を置いてからもう一度検索してください。")
+    r.raise_for_status()
+    return r.json() or []
+
+
+def _nominatim_get(query: str, limit: int = 10) -> List[Dict[str, Any]]:  # type: ignore[override]
+    """v202: 直接requestsではなく、キャッシュ付き1回検索に統一。"""
+    return _v202_cached_nominatim_get((query or "").strip(), int(limit or 20))
+
+
+def smart_search_place_candidates(query: str) -> List[Dict[str, Any]]:  # type: ignore[override]
+    """v202: クラウド版では大量の丁目変換検索を止め、429を避ける。
+
+    ローカル境界データがある場合は従来通り正確な町丁目一覧。
+    ローカル境界データが無い場合はNominatimへ1回だけ問い合わせる。
+    """
+    q = (query or "").strip()
+    if not q:
+        raise ValueError("検索語が空です")
+
+    local_items = local_boundary_search_candidates_v126(q, limit=300)
+    if local_items:
+        return local_items
+
+    try:
+        items = _nominatim_get(q, limit=20)
+    except V202SearchRateLimit:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"検索に失敗しました。時間を置いて再検索してください。詳細: {e}")
+
+    items = _dedupe_places(items)
+
+    def score(x: Dict[str, Any]) -> Tuple[int, int, int, int]:
+        disp = str(x.get("display_name", ""))
+        cls = str(x.get("class", ""))
+        typ = str(x.get("type", ""))
+        has_poly = 1 if _has_polygon_geojson(x) else 0
+        has_chome = 1 if "丁目" in disp else 0
+        exactish = 1 if _normalize_jp(q) in _normalize_jp(disp) else 0
+        residentialish = 1 if cls in ("boundary", "place") or typ in ("administrative", "quarter", "neighbourhood", "suburb", "residential") else 0
+        return (-has_poly, -exactish, -has_chome, -residentialish)
+
+    items.sort(key=score)
+    return items[:30]
+
+
+def _v202_loading_css():
+    st.markdown("""
+<style>
+/* v202: make spinner/progress/status visible on mobile */
+[data-testid="stSpinner"] *,
+[data-testid="stStatusWidget"] *,
+[data-testid="stProgress"] *,
+[data-testid="stProgress"] div {
+  color: #0f172a !important;
+}
+
+[data-testid="stSpinner"] {
+  background: #eff6ff !important;
+  border: 1px solid #bfdbfe !important;
+  border-radius: 14px !important;
+  padding: 12px 14px !important;
+}
+
+[data-testid="stProgress"] > div > div > div > div {
+  background-color: #2563eb !important;
+}
+
+.v202-loading-box {
+  background: #eff6ff;
+  border: 1.5px solid #93c5fd;
+  color: #0f172a;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-weight: 800;
+  margin: 8px 0 10px 0;
+}
+.v202-rate-box {
+  background: #fff7ed;
+  border: 1.5px solid #fdba74;
+  color: #7c2d12;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# v202 PATCH END
+# =========================================================
+
 def main() -> None:
     st.set_page_config(page_title="GPXuploader", layout="wide", initial_sidebar_state="expanded")
     st.title("GPXuploader")
-    st.caption("スマホブラウザ実用版 v201。候補リストの文字消え修正・配布範囲の境界表示を強化しています。")
+    st.caption("スマホブラウザ実用版 v202。検索429対策と検索中表示を強化しています。")
     _v198_mobile_css()
     _v199_mobile_fix_css()
     _v200_readable_mobile_css()
     _v201_dropdown_and_map_css()
+    _v202_loading_css()
     _v198_header()
 
     missing = []
@@ -2801,23 +2935,35 @@ def main() -> None:
         search_clicked = st.button("候補検索", use_container_width=True)
 
         if search_clicked:
+            loading_box = st.empty()
+            prog = st.progress(10, text="候補検索を開始しています...")
+            loading_box.markdown('<div class="v202-loading-box">🔎 候補検索中です。通信状況により数秒〜数十秒かかることがあります。</div>', unsafe_allow_html=True)
             try:
-                candidates = _v179_sort_candidates(smart_search_place_candidates(query))
+                with st.spinner("候補検索中です。画面を閉じずにお待ちください..."):
+                    prog.progress(45, text="住所・町名候補を検索中...")
+                    candidates = _v179_sort_candidates(smart_search_place_candidates(query))
+                    prog.progress(85, text="候補を整理中...")
                 st.session_state.search_candidates_v126 = candidates
                 st.session_state.selected_candidate_idxs_v126 = []
                 st.session_state.candidate_selection_sig_v126 = None
+                prog.progress(100, text="検索完了")
+                loading_box.empty()
                 if not candidates:
                     st.warning("検索候補がありませんでした。例: 我孫子市 / 我孫子市湖北台 / 東京都台東区浅草 のように入れてください。")
                 else:
                     st.success(f"候補を{len(candidates)}件取得しました。下から必要な町丁目を選んでください。")
-                    # 検索直後は候補全体が見える位置へ移動する。ピン打ち中にはこの処理は走らない。
                     first = candidates[0]
                     st.session_state.map_center = (float(first["lat"]), float(first["lon"]))
                     st.session_state.map_zoom = 14
                     st.session_state.boundary_label = "検索候補"
                     st.session_state.boundary_lines = []
                     st.session_state.boundary_line_names_v174 = []
+            except V202SearchRateLimit:
+                prog.empty()
+                loading_box.markdown('<div class="v202-rate-box">⚠️ 検索サービスが混雑しています。<br>短時間に何度も検索すると一時的に止まります。1〜3分ほど待ってから、同じ町名をもう一度検索してください。<br>一度成功した検索結果はキャッシュされるので、次回から軽くなります。</div>', unsafe_allow_html=True)
             except Exception as e:
+                prog.empty()
+                loading_box.empty()
                 st.error(f"候補検索に失敗しました: {e}")
 
         candidates = st.session_state.get("search_candidates_v126", []) or []
@@ -12212,6 +12358,8 @@ def render_v195_excel_designated_mansion_images():
 # =========================================================
 # v197 PATCH END
 # =========================================================
+
+
 
 
 
