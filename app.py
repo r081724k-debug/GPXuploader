@@ -2337,11 +2337,94 @@ def _v198_header():
 # =========================================================
 
 
+
+# =========================================================
+# v199 PATCH START: スマホブラウザ実用UI修正
+# =========================================================
+# - 左サイドバー依存をやめ、操作パネルを本文内に表示
+# - スマホで謎の空白になっていたメトリクスカードを非表示/圧縮
+# - Streamlit dark themeでも白カード内の文字が消えないように補正
+# =========================================================
+
+def _v199_mobile_fix_css():
+    st.markdown("""
+<style>
+/* v199: mobile practical fixes */
+@media (max-width: 760px) {
+  /* Streamlitのサイドバーはスマホだと邪魔になりやすいので使わない前提 */
+  section[data-testid="stSidebar"] {
+    display: none !important;
+  }
+
+  button[kind="header"] {
+    display: none !important;
+  }
+
+  /* 5個並びの状態カードがスマホで巨大な空白になるため非表示 */
+  [data-testid="stMetric"] {
+    display: none !important;
+  }
+
+  /* 地図をスマホ幅いっぱいに近づける */
+  iframe {
+    width: 100% !important;
+    min-height: 430px !important;
+  }
+
+  /* 余白を詰める */
+  .block-container {
+    padding-left: 0.45rem !important;
+    padding-right: 0.45rem !important;
+    padding-top: 0.30rem !important;
+  }
+
+  div[data-testid="stExpander"] {
+    margin-bottom: 0.85rem !important;
+  }
+
+  div[data-testid="stExpander"] details {
+    border-radius: 18px !important;
+  }
+}
+
+/* dark themeでも白背景カード内の文字が白飛びしないよう補正 */
+[data-testid="stMetric"] * {
+  color: #0f172a !important;
+}
+
+div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] label,
+div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] p,
+div[data-testid="stExpander"] div[data-testid="stVerticalBlock"] span {
+  color: #0f172a;
+}
+
+/* 入力欄はスマホで押しやすく */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* 不要に大きい空白を抑える */
+div[data-testid="stVerticalBlock"] {
+  gap: 0.55rem !important;
+}
+
+/* Streamlit右下のバッジ/メニューが邪魔な場合に軽く小さくする */
+[data-testid="stDecoration"] {
+  display: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =========================================================
+# v199 PATCH END
+# =========================================================
+
 def main() -> None:
     st.set_page_config(page_title="GPXuploader", layout="wide", initial_sidebar_state="expanded")
     st.title("GPXuploader")
-    st.caption("GPX作成・マンション画像取得・指定マンションExcel画像取得・チラシ合成をスマホでも使いやすくまとめた作業用アプリです。")
+    st.caption("スマホブラウザ実用版。操作パネルを本文内にまとめ、町名検索がすぐ使えるようにしています。")
     _v198_mobile_css()
+    _v199_mobile_fix_css()
     _v198_header()
 
     missing = []
@@ -2384,7 +2467,7 @@ def main() -> None:
     if "last_pin_click_sig_v126" not in st.session_state:
         st.session_state.last_pin_click_sig_v126 = None
 
-    with st.sidebar:
+    with st.expander("操作パネル：エリア検索・通過ピン・GPX作成条件", expanded=True):
         st.header("1. エリア検索")
         st.caption("市名だけなら市内の町丁目一覧、町名まで入れればその町の丁目一覧を出します。候補は1か所にまとめました。")
         query = st.text_input("町名/住所検索", "")
@@ -11801,6 +11884,8 @@ def render_v195_excel_designated_mansion_images():
 # =========================================================
 # v197 PATCH END
 # =========================================================
+
+
 
 
 
